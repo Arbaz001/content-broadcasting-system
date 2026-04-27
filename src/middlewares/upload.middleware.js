@@ -4,35 +4,31 @@
 
 const multer = require('multer');
 const path = require('path');
-const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
+const { CloudinaryStorage } = require('multer-storage-cloudinary');
+const cloudinary = require('../config/cloudinary');
 const { ALLOWED_FILE_TYPES, ALLOWED_EXTENSIONS, MAX_FILE_SIZE } = require('../utils/constants');
 const ApiError = require('../utils/apiError');
 
-// Ensure upload directory exists
-const uploadDir = path.join(process.cwd(), process.env.UPLOAD_PATH || 'uploads');
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
-}
-
 /**
- * Multer disk storage configuration.
- * Files are stored in the uploads/ directory with UUID-based filenames
- * to prevent collisions.
+ * Cloudinary storage configuration.
+ * Files are uploaded directly to Cloudinary.
  */
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, uploadDir);
-  },
-  filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname).toLowerCase();
-    const uniqueName = `${uuidv4()}${ext}`;
-    cb(null, uniqueName);
+const storage = new CloudinaryStorage({
+  cloudinary: cloudinary,
+  params: {
+    folder: 'content-broadcasting',
+    allowed_formats: ['jpg', 'png', 'gif', 'pdf', 'mp4'], // Adjust based on requirements
+    public_id: (req, file) => {
+      const ext = path.extname(file.originalname).toLowerCase();
+      const baseName = path.basename(file.originalname, ext);
+      return `${baseName}-${uuidv4()}`;
+    },
   },
 });
 
 /**
- * File filter — only allow JPG, PNG, and GIF files.
+ * File filter — only allow specific file types based on constants.
  */
 const fileFilter = (req, file, cb) => {
   const ext = path.extname(file.originalname).toLowerCase();
@@ -51,7 +47,7 @@ const fileFilter = (req, file, cb) => {
 };
 
 /**
- * Multer upload instance.
+ * Multer upload instance using Cloudinary storage.
  */
 const upload = multer({
   storage,

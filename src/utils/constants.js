@@ -42,8 +42,8 @@ const SUBJECTS = Object.freeze([
 /**
  * Allowed file types for upload.
  */
-const ALLOWED_FILE_TYPES = Object.freeze(['image/jpeg', 'image/png', 'image/gif']);
-const ALLOWED_EXTENSIONS = Object.freeze(['.jpg', '.jpeg', '.png', '.gif']);
+const ALLOWED_FILE_TYPES = Object.freeze(['image/jpeg', 'image/png', 'image/gif', 'application/pdf', 'video/mp4']);
+const ALLOWED_EXTENSIONS = Object.freeze(['.jpg', '.jpeg', '.png', '.gif', '.pdf', '.mp4']);
 
 /**
  * Upload constraints.

@@ -18,7 +18,7 @@ const { CONTENT_STATUS, PAGINATION } = require('../utils/constants');
  */
 async function uploadContent(data, file, teacherId) {
   if (!file) {
-    throw ApiError.badRequest('File is required. Please upload a JPG, PNG, or GIF image.');
+    throw ApiError.badRequest('File is required. Please upload a valid image, PDF, or video.');
   }
 
   // Create content record
@@ -26,7 +26,7 @@ async function uploadContent(data, file, teacherId) {
     title: data.title,
     description: data.description || null,
     subject: data.subject,
-    file_url: `/uploads/${file.filename}`,
+    file_url: file.path, // Cloudinary URL
     file_type: file.mimetype,
     file_size: file.size,
     uploaded_by: teacherId,

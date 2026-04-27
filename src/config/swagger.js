@@ -8,12 +8,12 @@ const options = {
   definition: {
     openapi: '3.0.0',
     info: {
-      title: 'Content Broadcasting System API',
+      title: 'Content Broadcasting System by Arbaz Ali',
       version: '1.0.0',
       description:
         'A backend API for educational content broadcasting. Teachers upload subject-based content, Principals approve/reject, and approved content is broadcasted via public API with scheduling and rotation.',
       contact: {
-        name: 'API Support',
+        name: 'Arbaz Ali',
       },
     },
     servers: [

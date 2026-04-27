@@ -296,16 +296,3 @@ architecture-notes.txt  # Detailed architecture documentation
 5. The system clock is trusted for time-based scheduling
 6. Redis is optional — the system works without it (just no caching)
 
-## Deployment (Render)
-
-1. **Database**: Create a PostgreSQL instance on Render and copy the **Internal Database URL**.
-2. **Web Service**: Create a new Web Service, connect your GitHub repo.
-3. **Build & Start**:
-   - Build Command: `npm install`
-   - Start Command: `npm start`
-4. **Environment Variables**:
-   - `NODE_ENV`: `production`
-   - `DATABASE_URL`: (Your PostgreSQL URL)
-   - `JWT_SECRET`: (A random secret string)
-   - `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`: (From your Cloudinary dashboard)
-   - `PORT`: `10000` (Render default)

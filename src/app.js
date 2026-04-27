@@ -46,6 +46,19 @@ app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
   },
 }));
 
+// ---- Welcome Route ----
+app.get('/', (req, res) => {
+  res.send(`
+    <div style="font-family: sans-serif; text-align: center; padding: 50px;">
+      <h1>🚀 Content Broadcasting System by Arbaz Ali</h1>
+      <p>The API is running successfully.</p>
+      <div style="margin-top: 20px;">
+        <a href="/api-docs" style="background: #007bff; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">View API Documentation</a>
+      </div>
+    </div>
+  `);
+});
+
 // ---- Health Check ----
 app.get('/api/health', (req, res) => {
   res.status(200).json({

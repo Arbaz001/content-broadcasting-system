@@ -18,8 +18,12 @@ const options = {
     },
     servers: [
       {
-        url: `http://localhost:${process.env.PORT || 3000}`,
-        description: 'Development server',
+        url: process.env.SERVER_URL || `http://localhost:${process.env.PORT || 3000}`,
+        description: process.env.SERVER_URL ? 'Production server' : 'Development server',
+      },
+      {
+        url: '/',
+        description: 'Relative path (auto-detect)',
       },
     ],
     components: {

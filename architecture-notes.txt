@@ -1,0 +1,303 @@
+================================================================================
+                    ARCHITECTURE NOTES
+           Content Broadcasting System (Backend)
+================================================================================
+
+1. AUTHENTICATION & RBAC FLOW
+================================================================================
+
+Authentication Strategy: JWT (JSON Web Tokens)
+  - Users register with name, email, password, and role (principal/teacher)
+  - Passwords are hashed using bcrypt with 12 salt rounds before storage
+  - On login, a JWT is issued containing { id, email, role } with 24h expiry
+  - JWT is sent in the Authorization header as "Bearer <token>"
+
+RBAC (Role-Based Access Control):
+  - Two roles: 'principal' and 'teacher'
+  - Implemented via two middleware layers:
+    a) auth.middleware.js → Verifies JWT, attaches user to request
+    b) role.middleware.js → Checks req.user.role against allowed roles
+  - Route-level enforcement:
+    * Teacher-only: POST /content/upload, GET /content/my
+    * Principal-only: GET /content/all, /pending, PATCH approve/reject
+    * Public (no auth): GET /content/live/:teacherId
+    * Shared: GET /content/:id (both roles with ownership check)
+
+Flow:
+  Client → [JWT in header] → auth.middleware → role.middleware → controller
+
+
+2. SUBJECT-BASED SYSTEM DESIGN
+================================================================================
+
+Subjects are the core organizing unit for content broadcasting:
+  - Predefined subjects: maths, science, english, history, geography,
+    computer_science, physics, chemistry, biology, economics
+  - Validated at upload time via Joi schema
+  - Stored as VARCHAR on the Content table
+
+Content Slots:
+  - One ContentSlot record per subject (auto-created on first use)
+  - Acts as a grouping mechanism for the scheduling system
+  - Referenced by ContentSchedule to organize rotation per subject
+
+Why separate Content Slots table?
+  - Provides a stable reference for scheduling
+  - Enables future extensions (slot-level config, priority, etc.)
+  - Clean normalization — avoids string-based joins
+
+
+3. UPLOAD HANDLING APPROACH
+================================================================================
+
+Technology: Multer (multipart/form-data middleware for Express)
+
+Storage: Local disk storage (uploads/ directory)
+  - Files renamed to UUID + original extension to prevent collisions
+  - Upload directory auto-created on server start
+  - Served as static files via Express: GET /uploads/<filename>
+
+Validation:
+  - File types: JPG, PNG, GIF only (validated by both MIME type and extension)
+  - File size: Max 10MB (configurable via env)
+  - Missing file → 400 error
+  - Multer errors (size, type) are caught and converted to ApiError responses
+
+Security:
+  - Files are not publicly listed (direct URL access only)
+  - Original filenames are not preserved (UUID prevents path traversal)
+  - Upload endpoint requires authentication + teacher role
+
+Flow:
+  Teacher → [multipart/form-data] → multer → validate fields → create Content record
+
+
+4. APPROVAL WORKFLOW DESIGN
+================================================================================
+
+Content Lifecycle: uploaded → pending → approved / rejected
+
+On Upload (Teacher):
+  1. Teacher submits form with file + metadata
+  2. Content is created with status = 'pending'
+  3. ContentSlot is auto-created if subject doesn't exist
+  4. Teacher can view their content and its status
+
+On Approve (Principal):
+  1. Principal reviews pending content via GET /content/pending
+  2. Sends PATCH /content/:id/approve
+  3. System updates:
+     - status → 'approved'
+     - approved_by → principal's ID
+     - approved_at → current timestamp
+     - rejection_reason → null (cleared if previously rejected)
+  4. A ContentSchedule entry is auto-created for rotation
+  5. Redis cache is invalidated for the teacher's live endpoint
+
+On Reject (Principal):
+  1. Principal sends PATCH /content/:id/reject with { rejection_reason }
+  2. Rejection reason is mandatory (min 5 chars, max 1000)
+  3. System updates:
+     - status → 'rejected'
+     - rejection_reason → provided reason
+  4. Any existing ContentSchedule entries are removed
+  5. Redis cache is invalidated
+
+Idempotency:
+  - Approving already-approved content returns it as-is (no error)
+  - Rejecting already-rejected content returns an error
+  - Only 'pending' content can transition to approved/rejected
+
+
+5. SCHEDULING / ROTATION LOGIC (MOST IMPORTANT)
+================================================================================
+
+This is the core business logic that determines what content is currently
+"on screen" for students accessing the live feed.
+
+Overview:
+  - Content is grouped by teacher AND subject
+  - Each content item has start_time, end_time, and rotation_duration
+  - Multiple content items within the same subject ROTATE over time
+  - The system dynamically calculates which item is "active" at any moment
+
+Time Window Enforcement:
+  - Content without start_time AND end_time → NOT active (never shown)
+  - Content where NOW < start_time → NOT yet active
+  - Content where NOW > end_time → EXPIRED (no longer active)
+  - Only content where start_time <= NOW <= end_time is eligible
+
+Rotation Algorithm (per subject, per teacher):
+
+  Step 1: Query approved content for teacher where NOW is in [start_time, end_time]
+  Step 2: Group eligible content by subject
+  Step 3: For each subject group:
+    a) Sort items by rotation_order (from ContentSchedule table)
+    b) Calculate total_cycle_duration = SUM(rotation_duration) of all items
+    c) Find reference_start = earliest start_time among items
+    d) Calculate elapsed_time = NOW - reference_start (in milliseconds)
+    e) position_in_cycle = elapsed_time % total_cycle_duration
+    f) Walk through sorted items, accumulating durations:
+       - When position_in_cycle falls within an item's range → that item is ACTIVE
+  Step 4: Return active item per subject
+
+Example:
+  Maths subject, Teacher 1, 3 approved items, each 5 min rotation:
+  
+  Content A (order 1): 0-5 min
+  Content B (order 2): 5-10 min
+  Content C (order 3): 10-15 min
+  Total cycle = 15 min
+  
+  At 7 minutes elapsed: 7 % 15 = 7 → falls in range [5,10) → Content B is active
+  At 16 minutes elapsed: 16 % 15 = 1 → falls in range [0,5) → Content A is active (looped!)
+
+Single Item:
+  - If only one item exists for a subject → always active (no rotation needed)
+
+Edge Cases:
+  - No approved content → return empty array with message
+  - Approved but no time window → excluded from results
+  - Approved but expired → excluded from results
+  - Invalid teacher ID → return empty (not error)
+  - Invalid subject filter → return empty (not error)
+
+
+6. DATABASE DESIGN DECISIONS
+================================================================================
+
+Four Tables:
+
+  Users:
+    - Standard user table with role enum (principal/teacher)
+    - Password stored as bcrypt hash
+    - Referenced by Content (uploaded_by, approved_by)
+
+  Content:
+    - Central table with all content metadata
+    - Status enum for lifecycle tracking
+    - start_time/end_time for teacher-controlled scheduling
+    - rotation_duration for per-item rotation control
+    - Foreign keys to Users for uploader and approver
+
+  Content Slots:
+    - One row per subject (unique constraint)
+    - Acts as normalization layer for scheduling
+    - Auto-created when content is uploaded for a new subject
+
+  Content Schedule:
+    - Maps content to slots with rotation_order and duration
+    - Created automatically when content is approved
+    - Removed when content is rejected
+    - Enables per-subject rotation ordering
+
+Why not embed scheduling in Content table?
+  - Separation of concerns: content metadata vs. scheduling logic
+  - Enables reordering without touching content records
+  - Supports future features: manual reorder, priority weights, complex schedules
+
+Indexing:
+  - Content: indexed on (uploaded_by, status, subject, start_time, end_time)
+  - Content Schedule: indexed on (slot_id, content_id)
+  - Users: indexed on email (unique)
+
+
+7. FOLDER STRUCTURE
+================================================================================
+
+  src/
+  ├── config/         → Database, Redis, Swagger configuration
+  ├── controllers/    → Request handlers (thin — delegate to services)
+  ├── middlewares/     → Auth, RBAC, upload, validation, error handling
+  ├── models/         → Sequelize model definitions + associations
+  ├── routes/         → Express route definitions with Swagger docs
+  ├── services/       → Business logic (auth, content, approval, scheduling)
+  ├── utils/          → Shared utilities (constants, ApiError, ApiResponse)
+  ├── validations/    → Joi schemas for request validation
+  ├── seeders/        → Database seed script
+  └── app.js          → Express app setup
+
+  server.js           → Entry point (DB connect, model sync, start server)
+
+Design Principle: Layered Architecture
+  Routes → Controllers → Services → Models
+  
+  - Routes: HTTP method + path + middleware chain
+  - Controllers: Parse request, call service, send response
+  - Services: Core business logic, database queries
+  - Models: Data definition, validation, hooks
+
+
+8. MIDDLEWARE USAGE
+================================================================================
+
+  Global Middleware (applied to all routes):
+    - helmet: Security headers
+    - cors: Cross-Origin Resource Sharing
+    - express.json: JSON body parsing
+    - express.urlencoded: URL-encoded body parsing
+
+  Route-Level Middleware:
+    - authenticate: JWT verification (protected routes)
+    - authorize(role): RBAC enforcement
+    - upload.single('file'): Multer file upload
+    - handleUploadError: Multer error translation
+    - validate(schema): Joi request validation
+    - broadcastLimiter: Rate limiting (public API)
+
+  Error Middleware:
+    - notFoundHandler: 404 for undefined routes
+    - errorHandler: Global error handler (converts all errors to JSON)
+
+  Execution Order (upload route example):
+    authenticate → authorize('teacher') → multer → handleUploadError 
+    → validate(schema) → controller
+
+
+9. SCALABILITY APPROACH
+================================================================================
+
+  Current (MVP):
+    - Single Node.js process
+    - PostgreSQL for persistence
+    - Local file storage
+    - Sequelize ORM with connection pooling (max 10 connections)
+
+  Caching (Implemented — Redis):
+    - /content/live responses cached with 30s TTL
+    - Cache invalidated on approve/reject actions
+    - Graceful fallback: app works without Redis
+
+  Rate Limiting (Implemented):
+    - Public API: 100 requests per 15 minutes per IP
+    - Prevents abuse of the broadcasting endpoint
+
+  Future Scalability Path:
+    a) File Storage:
+       - Migrate from local storage to S3/CloudFront
+       - CDN for serving uploaded content globally
+
+    b) Horizontal Scaling:
+       - Stateless JWT allows multiple app instances behind a load balancer
+       - Shared Redis for cache consistency across instances
+       - DB connection pooling via PgBouncer
+
+    c) Background Processing:
+       - Message queue (Bull/BullMQ with Redis) for:
+         * Async file processing (resize, convert)
+         * Notification delivery on approval/rejection
+         * Cache warming
+
+    d) Database:
+       - Read replicas for broadcasting queries (high read traffic)
+       - Partitioning content table by created_at for archival
+       - Full-text search index for content discovery
+
+    e) Monitoring:
+       - Structured logging (Winston/Pino)
+       - APM integration (New Relic, Datadog)
+       - Health check endpoint for load balancer
+
+================================================================================
+                         END OF ARCHITECTURE NOTES
+================================================================================

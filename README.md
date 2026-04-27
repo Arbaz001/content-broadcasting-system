@@ -2,6 +2,8 @@
 
 A backend API for educational environments where teachers upload subject-based content (question papers, announcements, materials), Principals approve/reject it, and approved content is broadcasted via public API endpoints with scheduling and rotation.
 
+**Developed by: Arbaz Ali**
+
 ## Tech Stack
 
 | Component | Technology |
@@ -11,7 +13,7 @@ A backend API for educational environments where teachers upload subject-based c
 | Database | PostgreSQL |
 | ORM | Sequelize v6 |
 | Authentication | JWT + bcrypt |
-| File Upload | Multer (local storage) |
+| File Upload | Cloudinary (Persistent Cloud Storage) |
 | Validation | Joi |
 | API Docs | Swagger (OpenAPI 3.0) |
 | Caching | Redis (optional) |
@@ -20,7 +22,8 @@ A backend API for educational environments where teachers upload subject-based c
 ## Features
 
 - ✅ JWT Authentication with role-based access control (Principal / Teacher)
-- ✅ Content upload with file validation (JPG, PNG, GIF, max 10MB)
+- ✅ Cloud-based file storage using **Cloudinary** (Persistent & Scalable)
+- ✅ Support for **Images, PDFs, and MP4 Videos**
 - ✅ Approval workflow (pending → approved / rejected with reason)
 - ✅ Public broadcasting API with per-teacher, per-subject content
 - ✅ Time-window scheduling (start_time / end_time)
@@ -31,6 +34,7 @@ A backend API for educational environments where teachers upload subject-based c
 - ✅ Rate limiting on public API
 - ✅ Pagination and filtering
 - ✅ Comprehensive error handling
+- ✅ Deployment ready (Render, Vercel, etc.)
 
 ## Prerequisites
 
@@ -74,7 +78,10 @@ DB_PASSWORD=postgres
 JWT_SECRET=your-secret-key
 JWT_EXPIRES_IN=24h
 
-UPLOAD_PATH=uploads
+# File Upload (Cloudinary)
+CLOUDINARY_CLOUD_NAME=your_cloud_name
+CLOUDINARY_API_KEY=your_api_key
+CLOUDINARY_API_SECRET=your_api_secret
 MAX_FILE_SIZE=10485760
 
 REDIS_URL=redis://localhost:6379
@@ -288,3 +295,17 @@ architecture-notes.txt  # Detailed architecture documentation
 4. Each content item has its own rotation_duration (default 5 minutes)
 5. The system clock is trusted for time-based scheduling
 6. Redis is optional — the system works without it (just no caching)
+
+## Deployment (Render)
+
+1. **Database**: Create a PostgreSQL instance on Render and copy the **Internal Database URL**.
+2. **Web Service**: Create a new Web Service, connect your GitHub repo.
+3. **Build & Start**:
+   - Build Command: `npm install`
+   - Start Command: `npm start`
+4. **Environment Variables**:
+   - `NODE_ENV`: `production`
+   - `DATABASE_URL`: (Your PostgreSQL URL)
+   - `JWT_SECRET`: (A random secret string)
+   - `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`: (From your Cloudinary dashboard)
+   - `PORT`: `10000` (Render default)
